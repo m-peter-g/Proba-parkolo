@@ -29,6 +29,22 @@ def build_xml_file():
     ET.indent(tree, space="\t", level=0) #for pretty printing
     tree.write("data.xml")
 
+def to_minutes(t):
+    h, m = map(int, t.split(":"))
+    return h * 60 + m
+
+def print_lot_schedule(lot_id):
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    lot = root.find(f"lot[@id='{lot_id}']")
+    bookings = lot.find("bookings").findall("booking")
+    if not bookings:
+        print(f"Lot {lot_id} has no bookings.")
+    else:
+        print(f"Lot {lot_id} has the following bookings:")
+        for booking in bookings:
+            print(f"({booking.get('arrival')}-{booking.get('departure')}) ({booking.get('plate')})")
+
 def main_menu():
     print("Welcome to the Application!")
     print("Please select an option:")
@@ -45,11 +61,76 @@ def main_menu():
 def modify_menu():
     print("1. Modify lot ID")
     print("2. Modify reservation times")
-    print("3. Back")
+    print("3. Confirm changes")
+    print("4. Cancel changes")
 
-    choice = input("Enter your choice (1-3): ")
+    choice = input("Enter your choice (1-4): ")
     return choice
     
+#book lot function
+def book_lot():
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    plate = input("Enter your license plate number: ")
+    #Plate format validation ABC-123
+    if not plate.replace("-", "").replace(" ", "").isalnum() or len(plate.replace("-", "").replace(" ", "")) != 6:
+        print("Invalid license plate format. Please enter a valid license plate (ABC-123).")
+        book_lot()
+        return
+    lot_id = input("Enter the lot ID you want to book: ")
+    lots = root.findall("lot")
+    lot = root.find(f"lot[@id='{lot_id}']")
+    for lot in lots:
+        if lot is None:
+            print(f"Lot {lot_id} does not exist.")
+            book_lot()
+            return
+        if lot.get("id") == lot_id:
+            if lot.get("disabled") == "true":
+                allowed = input(f"Lot {lot_id} is a handicapped lot, are you allowed to park here? (y/n): ")
+                if allowed.lower() != "y":
+                    print("You are not allowed to book this lot.")
+                    book_lot()
+            print_lot_schedule(lot_id)                
+    print("Make sure departure time is later than arrival time and does not overlap with existing bookings in the same lot.")
+    arrival = input("Enter the arrival time (HH:MM): ")
+    departure = input("Enter the departure time (HH:MM): ")
+    # Validate the arrival and departure times
+    try:
+        arrival_hours, arrival_minutes = map(int, arrival.split(':'))
+        departure_hours, departure_minutes = map(int, departure.split(':'))
+        if not (0 <= arrival_hours < 24 and 0 <= arrival_minutes < 60 and
+                0 <= departure_hours < 24 and 0 <= departure_minutes < 60):
+            print("Invalid time format. Please enter valid times.")
+            book_lot()
+        if to_minutes(arrival) >= to_minutes(departure):
+            print("Departure time must be later than arrival time and no overnight parking! >:(")
+            book_lot()
+            return
+    except ValueError:
+        print("Invalid input. Please enter time in HH:MM format.")
+        book_lot()
+    #Check if reservation times overlap with existing bookings in the lot
+    bookings = lot.find("bookings").findall("booking")
+    overlap = False
+    for booking in bookings:
+        booking_arrival = booking.get("arrival")
+        booking_departure = booking.get("departure")
+        if to_minutes(arrival) < to_minutes(booking_departure) and to_minutes(departure) > to_minutes(booking_arrival):
+            overlap = True
+            break
+    if overlap:
+        print("Reservation times overlap with existing bookings in this lot, change reservation times or select a different lot.")
+        book_lot()
+        return
+    # Get the next booking ID
+    meta = data.getroot().find("meta")
+    next_id_element = meta.find("next_booking_id")
+    booking_id = next_id_element.text
+    new_booking = ET.SubElement(lot.find("bookings"), "booking", id=booking_id, plate=plate, arrival=arrival, departure=departure)
+    next_id_element.text = str(int(booking_id) + 1)   # increment for next time
+    ET.indent(data, space="\t", level=0)
+    data.write("data.xml")
 
 #modify lot function
 def modify_lot():
@@ -65,6 +146,7 @@ def modify_lot():
                 booking_plate = booking.get("plate")
                 booking_arrival = booking.get("arrival")
                 booking_departure = booking.get("departure")
+                new_lot = lot
                 new_lot_id = booking_lot_id
                 new_arrival = booking_arrival
                 new_departure = booking_departure
@@ -76,13 +158,13 @@ def modify_lot():
                     if modify_choice == "1":
                         tmp = input("Enter the new lot ID: ")
                         # Check if the new lot ID exists
-                        new_lot = root.find(f"lots/lot[@id='{tmp}']")
+                        new_lot = root.find(f"lot[@id='{tmp}']")
                         if new_lot is None:
-                            print(f"Lot ID {tmp} does not exist.")
+                            print(f"Lot {tmp} does not exist.")
                             continue
                         # Check if the new lot is disabled
                         if new_lot.get("disabled") == "true":
-                            allowed = input(f"Lot ID {tmp} is a handicapped lot, are you allowed to park here? (y/n): ")
+                            allowed = input(f"Lot {tmp} is a handicapped lot, are you allowed to park here? (y/n): ")
                             if allowed.lower() != "y":
                                 continue
                         # Check if the new lot is already booked
@@ -103,7 +185,7 @@ def modify_lot():
                                     0 <= departure_hours < 24 and 0 <= departure_minutes < 60):
                                 print("Invalid time format. Please enter valid times.")
                                 continue
-                            if tmp_arrival > tmp_departure:
+                            if to_minutes(tmp_arrival) >= to_minutes(tmp_departure):
                                 print("Departure time must be later than arrival time and no overnight parking! >:(")
                                 continue
                         except ValueError:
@@ -115,34 +197,34 @@ def modify_lot():
                             new_arrival = tmp_arrival
                             new_departure = tmp_departure
                     elif modify_choice == "3":
+                        # Update the booking information
+                        if not overlap:
+                            # Remove the booking from the old lot
+                            lot.find("bookings").remove(booking)
+                            # Add the booking to the new lot
+                            new_lot = root.find(f"lot[@id='{new_lot_id}']")
+                            new_booking = ET.SubElement(new_lot.find("bookings"), "booking", id=booking_id, plate=booking_plate, arrival=new_arrival, departure=new_departure)
+                            done = True                
+                    elif modify_choice == "4":
                         return
 
-                    if new_lot_id:
-                        #Check if reservation times overlap with existing bookings in the new lot
-                        new_lot_bookings = new_lot.find("bookings").findall("booking")
-                        overlap = False
-                        for new_booking in new_lot_bookings:
-                            new_booking_arrival = new_booking.get("arrival")
-                            new_booking_departure = new_booking.get("departure")
-                            if (new_arrival < new_booking_departure and new_departure > new_booking_arrival or booking_arrival < new_booking_departure and booking_departure > new_booking_arrival):
-                                overlap = True
-                                break
-                        if overlap:
-                            print(f"Reservation times overlap with existing bookings in lot {new_lot_id}, change reservation times or select a different lot.")
-                            continue
+                    #Check if reservation times overlap with existing bookings in the new lot
+                    new_lot_bookings = new_lot.find("bookings").findall("booking")
+                    overlap = False
+                    for new_booking in new_lot_bookings:
+                        if new_booking.get("id") == booking_id:
+                            continue  # this is the booking we're modifying, not a real collision
+                        new_booking_arrival = new_booking.get("arrival")
+                        new_booking_departure = new_booking.get("departure")
+                        if to_minutes(new_arrival) < to_minutes(new_booking_departure) and to_minutes(new_departure) > to_minutes(new_booking_arrival):
+                            overlap = True
+                            break
+                    if overlap:
+                        print(f"Reservation times overlap with existing bookings in lot {new_lot_id}, change reservation times or select a different lot.")
                     
-                    
-                    # Update the booking information
-                    if not overlap:
-                        # Remove the booking from the old lot
-                        lot.find("bookings").remove(booking)
-                        # Add the booking to the new lot
-                        new_lot = data.getroot().find(f"lots/lot[@id='{new_lot_id}']")
-                        new_booking = ET.SubElement(new_lot.find("bookings"), "booking", id=booking_id, plate=booking_plate, arrival=new_arrival, departure=new_departure)
-                        done = True
-            
+                ET.indent(data, space="\t", level=0)
                 data.write("data.xml")
-                print(f"Booking {booking_id} modified to lot {new_lot_id}.")
+                print(f"Booking {booking_id} modified to lot {new_lot_id}, reservation times: {new_arrival}-{new_departure}.")
                 break
         else:
             continue
