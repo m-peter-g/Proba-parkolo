@@ -54,27 +54,29 @@ def modify_menu():
 #modify lot function
 def modify_lot():
     booking_id = input("Enter the booking ID to of the booking you are looking to modify: ")
-    data = ET.open("data.xml")
-    lots = data.getroot().find("lots").findall("lot")
-    bookings = lots.getroot().findall("bookings")
-    if not bookings:
-        print("No bookings found.")
-        return
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    lots = root.findall("lot")
+    
     for lot in lots:
-        for booking in bookings:
+        for booking in lot.find("bookings").findall("booking"):
             if booking.get("id") == booking_id:
-                booking_lot_id = lot.get("id").text
-                booking_plate = booking.find("plate").text
-                booking_arrival = booking.find("arrival").text
-                booking_departure = booking.find("departure").text
+                booking_lot_id = lot.get("id")
+                booking_plate = booking.get("plate")
+                booking_arrival = booking.get("arrival")
+                booking_departure = booking.get("departure")
+                new_lot_id = booking_lot_id
+                new_arrival = booking_arrival
+                new_departure = booking_departure
                 print(f"{booking_id} => Lot: {booking_lot_id}, Plate: {booking_plate}, Reservation: ({booking_arrival}-{booking_departure})")
-                done = False         
+                done = False
+                overlap = False
                 while not done:   
                     modify_choice = modify_menu()
                     if modify_choice == "1":
                         tmp = input("Enter the new lot ID: ")
                         # Check if the new lot ID exists
-                        new_lot = data.getroot().find(f"lots/lot[@id='{tmp}']")
+                        new_lot = root.find(f"lots/lot[@id='{tmp}']")
                         if new_lot is None:
                             print(f"Lot ID {tmp} does not exist.")
                             continue
@@ -101,7 +103,7 @@ def modify_lot():
                                     0 <= departure_hours < 24 and 0 <= departure_minutes < 60):
                                 print("Invalid time format. Please enter valid times.")
                                 continue
-                            if tmp_arrival >= tmp_departure:
+                            if tmp_arrival > tmp_departure:
                                 print("Departure time must be later than arrival time and no overnight parking! >:(")
                                 continue
                         except ValueError:
@@ -120,27 +122,31 @@ def modify_lot():
                         new_lot_bookings = new_lot.find("bookings").findall("booking")
                         overlap = False
                         for new_booking in new_lot_bookings:
-                            new_booking_arrival = new_booking.find("arrival").text
-                            new_booking_departure = new_booking.find("departure").text
+                            new_booking_arrival = new_booking.get("arrival")
+                            new_booking_departure = new_booking.get("departure")
                             if (new_arrival < new_booking_departure and new_departure > new_booking_arrival or booking_arrival < new_booking_departure and booking_departure > new_booking_arrival):
                                 overlap = True
                                 break
                         if overlap:
                             print(f"Reservation times overlap with existing bookings in lot {new_lot_id}, change reservation times or select a different lot.")
-                        
-
+                            continue
+                    
+                    
+                    # Update the booking information
+                    if not overlap:
+                        # Remove the booking from the old lot
+                        lot.find("bookings").remove(booking)
+                        # Add the booking to the new lot
+                        new_lot = data.getroot().find(f"lots/lot[@id='{new_lot_id}']")
+                        new_booking = ET.SubElement(new_lot.find("bookings"), "booking", id=booking_id, plate=booking_plate, arrival=new_arrival, departure=new_departure)
+                        done = True
             
-                
-                
-                
                 data.write("data.xml")
                 print(f"Booking {booking_id} modified to lot {new_lot_id}.")
-                return
-            else:
-                print(f"No booking found with ID {booking_id}.")
-                modify_lot()  # Call the function again to allow the user to try again
-    
-
+                break
+        else:
+            continue
+        break
 
 #Set time function
 def set_time():
