@@ -1,5 +1,9 @@
 import time
 import xml.etree.ElementTree as ET
+import random
+import string
+
+print("Welcome to the Application!") #Cheeky
 
 #XML file builder function
 def build_xml_file():
@@ -33,20 +37,67 @@ def to_minutes(t):
     h, m = map(int, t.split(":"))
     return h * 60 + m
 
+def seed_random_bookings(count=100):
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    meta = data.getroot().find("meta")
+    next_id_element = meta.find("next_booking_id")
+    lots = root.findall("lot")
+    used_plates =set()
+    
+    for _ in range(count):
+        lot = random.choice(lots)
+        plate = f"{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}-{random.randint(100, 999)}"
+        if plate in used_plates:
+            continue  # Skip if the plate is already used
+        used_plates.add(plate)
+        
+        existing_bookings = lot.find("bookings").findall("booking")
+        placed = False
+        for attempt in range(10):  # try a handful of random windows before giving up on this lot
+            arrival_hour = random.randint(0, 22)  # cap at 22 so there's always room for departure later same day
+            arrival_minute = random.randint(0, 59)
+            departure_hour = random.randint(arrival_hour, 23)
+            departure_minute = random.randint(0, 59)
+            arrival = f"{arrival_hour:02d}:{arrival_minute:02d}"
+            departure = f"{departure_hour:02d}:{departure_minute:02d}"
+
+            if to_minutes(arrival) >= to_minutes(departure):
+                continue  # invalid window, try again
+
+            overlap = False
+            for booking in existing_bookings:
+                if (to_minutes(arrival) < to_minutes(booking.get("departure")) and
+                        to_minutes(departure) > to_minutes(booking.get("arrival"))):
+                    overlap = True
+                    break
+
+            if not overlap:
+                booking_id = next_id_element.text
+                ET.SubElement(lot.find("bookings"), "booking", id=booking_id, plate=plate, arrival=arrival, departure=departure)
+                next_id_element.text = str(int(booking_id) + 1)
+                placed = True
+                break
+    ET.indent(data, space="\t", level=0)
+    data.write("data.xml")
+    
 def print_lot_schedule(lot_id):
     data = ET.parse("data.xml")
     root = data.getroot().find("lots")
     lot = root.find(f"lot[@id='{lot_id}']")
+    if lot is None:
+        print(f"Lot {lot_id} does not exist.")
+        return
     bookings = lot.find("bookings").findall("booking")
     if not bookings:
         print(f"Lot {lot_id} has no bookings.")
     else:
+        bookings.sort(key=lambda b: to_minutes(b.get("arrival")))
         print(f"Lot {lot_id} has the following bookings:")
         for booking in bookings:
             print(f"({booking.get('arrival')}-{booking.get('departure')}) ({booking.get('plate')})")
 
 def main_menu():
-    print("Welcome to the Application!")
     print("Please select an option:")
     print("1. Book lot")
     print("2. List lots")
@@ -162,7 +213,7 @@ def list_lots():
             bookings = lot.find("bookings").findall("booking")
             is_available = True
             for booking in bookings:
-                if to_minutes(booking.get("arrival")) <= to_minutes(current_time) < to_minutes(booking.get("departure")):
+                if to_minutes(booking.get("arrival")) < to_minutes(current_time) < to_minutes(booking.get("departure")):
                     is_available = False
                     break
             if (is_available):
@@ -176,7 +227,6 @@ def list_lots():
         lot_id = input("Enter the lot ID to check the schedule: ")
         print_lot_schedule(lot_id)
     
-
 #remove reservation function
 def remove_reservation():
     booking_id = input("Enter the ID of your booking you'd like to remove: ")
@@ -241,6 +291,7 @@ def modify_lot():
                         new_lot_id = tmp
                     elif modify_choice == "2":
                         print(f"Current reservation times: ({booking_arrival}-{booking_departure})")
+                        print_lot_schedule(new_lot_id)
                         print("Make sure departure time is later than arrival time and does not overlap with existing bookings in the same lot.")
                         tmp_arrival = input("Enter the new arrival time (HH:MM): ")
                         tmp_departure = input("Enter the new departure time (HH:MM): ")
@@ -328,6 +379,10 @@ try:
         data.write("data.xml")
 except FileNotFoundError:
     build_xml_file()
+    pop = input("Would you like to seed the parking lot with random bookings? (y/n): ")
+    if pop.lower() == "y":
+        seed_random_bookings()
+    
 
 
 #Call menu, handle choice
