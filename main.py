@@ -80,18 +80,18 @@ def book_lot():
     lot_id = input("Enter the lot ID you want to book: ")
     lots = root.findall("lot")
     lot = root.find(f"lot[@id='{lot_id}']")
-    for lot in lots:
-        if lot is None:
-            print(f"Lot {lot_id} does not exist.")
-            book_lot()
-            return
-        if lot.get("id") == lot_id:
-            if lot.get("disabled") == "true":
-                allowed = input(f"Lot {lot_id} is a handicapped lot, are you allowed to park here? (y/n): ")
-                if allowed.lower() != "y":
-                    print("You are not allowed to book this lot.")
-                    book_lot()
-            print_lot_schedule(lot_id)                
+    
+    if lot is None:
+        print(f"Lot {lot_id} does not exist.")
+        book_lot()
+        return
+    if lot.get("id") == lot_id:
+        if lot.get("disabled") == "true":
+            allowed = input(f"Lot {lot_id} is a handicapped lot, are you allowed to park here? (y/n): ")
+            if allowed.lower() != "y":
+                print("You are not allowed to book this lot.")
+                book_lot()
+        print_lot_schedule(lot_id)             
     print("Make sure departure time is later than arrival time and does not overlap with existing bookings in the same lot.")
     arrival = input("Enter the arrival time (HH:MM): ")
     departure = input("Enter the departure time (HH:MM): ")
