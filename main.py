@@ -67,6 +67,15 @@ def modify_menu():
     choice = input("Enter your choice (1-4): ")
     return choice
     
+def list_menu():
+    print("1. List all lots")
+    print("2. List lots by floor")
+    print("3. List lots by availability")
+    print("4. Back to main menu")
+
+    choice = input("Enter your choice (1-4): ")
+    return choice
+
 #book lot function
 def book_lot():
     data = ET.parse("data.xml")
@@ -131,6 +140,64 @@ def book_lot():
     next_id_element.text = str(int(booking_id) + 1)   # increment for next time
     ET.indent(data, space="\t", level=0)
     data.write("data.xml")
+
+#list lots function
+def list_lots():
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    lots = root.findall("lot")
+    list_choice = list_menu()
+    if list_choice == "1":
+        for lot in lots:
+            print(f"Lot: {lot.get('id')}")
+    elif list_choice == "2":
+        floor = input("Enter the floor (A, B, C, D): ")
+        for lot in lots:
+            if lot.get("id").startswith(floor):
+                print(f"Lot: {lot.get('id')}")
+    elif list_choice == "3":  #checks current time against lot schedules
+        current_time = data.getroot().find("meta").find("current_time").text
+        print(f"Current time: {current_time}")
+        for lot in lots:
+            bookings = lot.find("bookings").findall("booking")
+            is_available = True
+            for booking in bookings:
+                if to_minutes(booking.get("arrival")) <= to_minutes(current_time) < to_minutes(booking.get("departure")):
+                    is_available = False
+                    break
+            if (is_available):
+                print(f"Lot: {lot.get('id')} Available.")
+            else:
+                print(f"Lot: {lot.get('id')} Not Available.")
+    elif list_choice == "4":
+        return
+    check = input("Would you like to check the schedule of a specific lot? (y/n): ")
+    if check.lower() == "y":
+        lot_id = input("Enter the lot ID to check the schedule: ")
+        print_lot_schedule(lot_id)
+    
+
+#remove reservation function
+def remove_reservation():
+    booking_id = input("Enter the ID of your booking you'd like to remove: ")
+    data = ET.parse("data.xml")
+    root = data.getroot().find("lots")
+    lots = root.findall("lot")
+    for lot in lots:
+        for booking in lot.find("bookings").findall("booking"):
+            if booking.get("id") == booking_id:
+                print(f"Booking {booking_id} => Lot: {lot.get('id')}, Plate: {booking.get('plate')}, "
+                    f"Reservation: ({booking.get('arrival')}-{booking.get('departure')})")
+                confirm = input("Delete this booking? (y/n): ")
+                if confirm.lower() != "y":
+                    print("Cancelled.")
+                    return
+                lot.find("bookings").remove(booking)
+                ET.indent(data, space="\t", level=0)
+                data.write("data.xml")
+                print(f"Booking {booking_id} removed.")
+                return
+    print(f"Booking ID {booking_id} not found.")
 
 #modify lot function
 def modify_lot():
